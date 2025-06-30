@@ -137,7 +137,7 @@
         let lastActualWholePercentage = 0; 
         let simulatedDecimal = 0; 
         let decimalAnimationInterval = null; 
-        let lastLevelChangeTime = Date.now(); // To track time between 1% changes
+        let lastLevelChangeTime = Date.now(); 
         let estimatedMsPerPercent = 180000; // Default estimate: 3 minutes (180,000 ms) per 1%
 
         // Formats number to two decimal places
@@ -151,17 +151,13 @@
                 clearInterval(decimalAnimationInterval);
             }
 
-            // Calculate interval for each decimal step
-            // We want 100 steps (.00 to .99) to take 'estimatedMsPerPercent' milliseconds
-            // So, each step should take (estimatedMsPerPercent / 100) milliseconds
-            const decimalStepInterval = Math.max(10, Math.floor(estimatedMsPerPercent / 100)); // Minimum 10ms per step
+            const decimalStepInterval = Math.max(10, Math.floor(estimatedMsPerPercent / 100)); 
 
             decimalAnimationInterval = setInterval(() => {
                 if (simulatedDecimal < 99) {
                     simulatedDecimal++;
                 } else {
                     // If it reaches 99, we stop it and wait for the actual percentage to change
-                    // It will restart from 00 when actual percentage updates
                     clearInterval(decimalAnimationInterval);
                     decimalAnimationInterval = null;
                 }
@@ -174,7 +170,7 @@
             if (decimalAnimationInterval) {
                 clearInterval(decimalAnimationInterval);
                 decimalAnimationInterval = null;
-                simulatedDecimal = 0; // Reset decimal when animation stops
+                simulatedDecimal = 0; 
             }
         }
 
@@ -198,42 +194,61 @@
 
                 // If the actual whole percentage has changed (e.g., 56 to 57)
                 if (currentActualWholePercentage !== lastActualWholePercentage) {
-                    // Calculate time taken for last 1% charge
                     const timeTaken = Date.now() - lastLevelChangeTime;
-                    if (timeTaken > 0 && currentActualWholePercentage > lastActualWholePercentage) { // Only update estimate if percentage increased
-                        estimatedMsPerPercent = timeTaken; // Use this to pace decimals
+                    if (timeTaken > 0 && currentActualWholePercentage > lastActualWholePercentage) { 
+                        estimatedMsPerPercent = timeTaken; 
                     }
-                    lastLevelChangeTime = Date.now(); // Reset timer for next 1% change
+                    lastLevelChangeTime = Date.now(); 
 
                     lastActualWholePercentage = currentActualWholePercentage;
-                    simulatedDecimal = 0; // Reset decimal counter for the new whole number
+                    simulatedDecimal = 0; 
                     percentageDisplay.textContent = formatPercentage(lastActualWholePercentage, simulatedDecimal);
-                    startDecimalAnimation(); // Start animating decimals from .00 again with new pace
+                    startDecimalAnimation(); 
                 } else {
-                    // If actual whole percentage is same, just update the display with current simulated decimal
                     percentageDisplay.textContent = formatPercentage(lastActualWholePercentage, simulatedDecimal);
                     if (!decimalAnimationInterval) { 
-                        // If decimal animation stopped because it reached .99 (and actual level hasn't updated yet)
-                        // Or if for some reason it wasn't running, start it again.
                         startDecimalAnimation();
                     }
                 }
 
-                // Estimate time remaining (very rough estimate)
-                if (battery.level < 1) {
-                    const minsRemaining = Math.round((1 - battery.level) * (estimatedMsPerPercent / 60000)); 
-                    timeRemaining.textContent = `${minsRemaining} min remaining`;
+                // --- Time Remaining Calculation Improvement ---
+                let remainingTimeString = "Calculating...";
+                if (battery.chargingTime !== Infinity) { // Check if chargingTime is available and not infinite
+                    const totalSecondsRemaining = battery.chargingTime;
+                    const hours = Math.floor(totalSecondsRemaining / 3600);
+                    const minutes = Math.floor((totalSecondsRemaining % 3600) / 60);
+
+                    if (hours > 0) {
+                        remainingTimeString = `${hours} hr ${minutes} min remaining`;
+                    } else if (minutes > 0) {
+                        remainingTimeString = `${minutes} min remaining`;
+                    } else if (totalSecondsRemaining > 0) {
+                        remainingTimeString = "Less than 1 min remaining";
+                    } else {
+                        remainingTimeString = "Fully charged";
+                    }
                 } else {
-                    timeRemaining.textContent = "Fully charged";
+                    // Fallback to our estimate if battery.chargingTime is not available or is Infinity
+                    if (battery.level < 1) {
+                        const minsRemaining = Math.round((1 - battery.level) * (estimatedMsPerPercent / 60000));
+                        if (minsRemaining > 0) {
+                            remainingTimeString = `${minsRemaining} min remaining`;
+                        } else {
+                            remainingTimeString = "Less than 1 min remaining";
+                        }
+                    } else {
+                        remainingTimeString = "Fully charged";
+                    }
                 }
+                timeRemaining.textContent = remainingTimeString;
+                // --- End Time Remaining Calculation Improvement ---
 
             } else { // Not charging
-                stopDecimalAnimation(); // Stop any ongoing decimal animation
+                stopDecimalAnimation(); 
                 chargingStatus.innerHTML = '<i class="fas fa-battery-three-quarters mr-2"></i> Not Charging';
                 lightningIcon.style.display = 'none';
                 lightningIcon.classList.remove('pulse-animation');
                 timeRemaining.textContent = "Not charging";
-                // When not charging, show the actual percentage directly
                 percentageDisplay.textContent = formatPercentage(currentActualWholePercentage, 0); 
                 lastActualWholePercentage = currentActualWholePercentage; 
             }
@@ -254,13 +269,13 @@
         // Initialize with real battery data
         if ('getBattery' in navigator) {
             navigator.getBattery().then(function(battery) {
-                // Initial update
                 lastActualWholePercentage = Math.floor(battery.level * 100);
                 updateBatteryDisplay(battery);
                 
-                // Set up event listeners
                 battery.addEventListener('chargingchange', () => updateBatteryDisplay(battery));
                 battery.addEventListener('levelchange', () => updateBatteryDisplay(battery));
+                // Add listener for chargingtimechange for potentially more accurate time remaining
+                battery.addEventListener('chargingtimechange', () => updateBatteryDisplay(battery)); 
             });
         } else {
             percentageDisplay.textContent = "00.00";
