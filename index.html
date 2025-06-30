@@ -48,6 +48,7 @@
   </style>
 </head>
 <body class="bg-gray-900 min-h-screen flex flex-col items-center justify-center p-4">
+
   <div class="text-center mb-8">
     <h1 class="text-3xl font-bold text-white mb-2">Device Charging Status</h1>
     <p class="text-gray-300">Real-time battery percentage monitoring</p>
@@ -89,135 +90,91 @@
     </div>
   </div>
 
-  <div class="mt-8 grid grid-cols-1 md:grid-cols-3 gap-4 w-full max-w-4xl">
-    <div class="bg-gray-800 p-4 rounded-lg">
-      <div class="flex items-center">
-        <div class="p-3 rounded-full bg-blue-900 text-blue-300 mr-3">
-          <i class="fas fa-battery-three-quarters"></i>
-        </div>
-        <div>
-          <div class="text-gray-400 text-sm">Battery Health</div>
-          <div class="text-white font-medium">Good</div>
-        </div>
-      </div>
-    </div>
-    <div class="bg-gray-800 p-4 rounded-lg">
-      <div class="flex items-center">
-        <div class="p-3 rounded-full bg-purple-900 text-purple-300 mr-3">
-          <i class="fas fa-clock"></i>
-        </div>
-        <div>
-          <div class="text-gray-400 text-sm">Time Remaining</div>
-          <div id="timeRemaining" class="text-white font-medium">Calculating...</div>
-        </div>
-      </div>
-    </div>
-    <div class="bg-gray-800 p-4 rounded-lg">
-      <div class="flex items-center">
-        <div class="p-3 rounded-full bg-green-900 text-green-300 mr-3">
-          <i class="fas fa-plug"></i>
-        </div>
-        <div>
-          <div class="text-gray-400 text-sm">Power Source</div>
-          <div class="text-white font-medium">AC Power</div>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <script>
     const percentageDisplay = document.getElementById("percentageDisplay");
     const batteryFill = document.getElementById("batteryFill");
     const progressBar = document.getElementById("progressBar");
     const updateTime = document.getElementById("updateTime");
-    const timeRemaining = document.getElementById("timeRemaining");
     const lightningIcon = document.getElementById("lightningIcon");
     const chargingStatus = document.getElementById("chargingStatus");
 
-    let intervalId = null;
-    let lastLevel = -1;
-    let levelStartTime = null;
-    let lastSimulatedPercent = 0;
+    let interval = null;
+    let simulatedDecimal = 0;
+    let lastBatteryLevel = null;
+    let decimalStepDuration = 100; // ms
 
-    function simulateDecimals(startPercent, durationMs) {
-      clearInterval(intervalId);
-      const totalSteps = 100;
-      const stepTime = durationMs / totalSteps;
-      let currentDecimal = 0;
+    function startSimulating(batteryLevel) {
+      clearInterval(interval);
+      simulatedDecimal = 0;
 
-      intervalId = setInterval(() => {
-        if (currentDecimal > 99) currentDecimal = 99;
-        let simulatedValue = startPercent + currentDecimal / 100;
-        percentageDisplay.textContent = simulatedValue.toFixed(2);
+      interval = setInterval(() => {
+        if (simulatedDecimal >= 100) simulatedDecimal = 99;
+
+        const simulatedValue = (batteryLevel + simulatedDecimal / 100).toFixed(2);
+        percentageDisplay.textContent = simulatedValue;
         batteryFill.style.height = simulatedValue + "%";
         progressBar.style.width = simulatedValue + "%";
+
         updateTime.textContent = new Date().toLocaleTimeString();
-        currentDecimal++;
-      }, stepTime);
+
+        simulatedDecimal++;
+      }, decimalStepDuration);
     }
 
-    function stopSimulation() {
-      clearInterval(intervalId);
+    function stopSimulating() {
+      clearInterval(interval);
     }
 
-    if ("getBattery" in navigator) {
-      navigator.getBattery().then((battery) => {
-        function updateBatteryStatus() {
-          const currentLevel = Math.floor(battery.level * 100);
+    if ('getBattery' in navigator) {
+      navigator.getBattery().then(function(battery) {
+        function updateDisplay() {
+          const level = Math.floor(battery.level * 100);
 
+          // Check for charging
           if (battery.charging) {
-            chargingStatus.innerHTML =
-              '<i class="fas fa-bolt mr-2 text-yellow-400"></i> Charging';
+            chargingStatus.innerHTML = '<i class="fas fa-bolt mr-2 text-yellow-400"></i> Charging';
             lightningIcon.style.display = "block";
             lightningIcon.classList.add("pulse-animation");
 
-            // Time tracking for accurate .00 → .99 simulation
-            if (currentLevel !== lastLevel) {
-              if (lastLevel !== -1 && levelStartTime !== null) {
-                const duration = new Date().getTime() - levelStartTime;
-                simulateDecimals(lastLevel, duration);
-              }
-              levelStartTime = new Date().getTime();
-              lastLevel = currentLevel;
+            if (lastBatteryLevel !== level) {
+              // New percent reached, start fresh simulation
+              lastBatteryLevel = level;
+              startSimulating(level);
             }
 
-            const minsRemaining = Math.round((1 - battery.level) * 180);
-            timeRemaining.textContent = `${minsRemaining} min remaining`;
           } else {
-            stopSimulation();
-            percentageDisplay.textContent = (currentLevel).toFixed(2);
+            stopSimulating();
+            percentageDisplay.textContent = (battery.level * 100).toFixed(2);
             batteryFill.style.height = battery.level * 100 + "%";
             progressBar.style.width = battery.level * 100 + "%";
+
             lightningIcon.style.display = "none";
             lightningIcon.classList.remove("pulse-animation");
-            chargingStatus.innerHTML =
-              '<i class="fas fa-battery-three-quarters mr-2"></i> Not Charging';
-            timeRemaining.textContent = "Not charging";
+            chargingStatus.innerHTML = '<i class="fas fa-battery-three-quarters mr-2"></i> Not Charging';
           }
 
-          // Color logic
+          // Bar color update
           if (battery.level > 0.8) {
-            progressBar.classList.remove("bg-green-500", "bg-yellow-500");
             progressBar.classList.add("bg-green-300");
+            progressBar.classList.remove("bg-green-500", "bg-yellow-500");
           } else if (battery.level > 0.2) {
-            progressBar.classList.remove("bg-green-300", "bg-yellow-500");
             progressBar.classList.add("bg-green-500");
+            progressBar.classList.remove("bg-green-300", "bg-yellow-500");
           } else {
-            progressBar.classList.remove("bg-green-500", "bg-green-300");
             progressBar.classList.add("bg-yellow-500");
+            progressBar.classList.remove("bg-green-500", "bg-green-300");
           }
         }
 
-        updateBatteryStatus();
+        updateDisplay();
 
-        battery.addEventListener("chargingchange", updateBatteryStatus);
-        battery.addEventListener("levelchange", updateBatteryStatus);
+        battery.addEventListener("levelchange", updateDisplay);
+        battery.addEventListener("chargingchange", updateDisplay);
       });
     } else {
       percentageDisplay.textContent = "00.00";
       chargingStatus.innerHTML =
-        '<i class="fas fa-exclamation-triangle mr-2 text-red-400"></i> API not supported';
-      timeRemaining.textContent = "Battery API not available";
+        '<i class="fas fa-exclamation-triangle mr-2 text-red-400"></i> Battery API not supported';
     }
   </script>
 </body>
