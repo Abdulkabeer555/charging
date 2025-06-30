@@ -134,62 +134,77 @@
         const lightningIcon = document.getElementById('lightningIcon');
         const chargingStatus = document.getElementById('chargingStatus');
 
-        let currentDisplayedPercentage = 0;
-        let animationInterval = null;
+        let lastActualWholePercentage = 0; // Stores the last whole percentage reported by the API
+        let simulatedDecimal = 0; // The decimal part (0 to 99)
+        let decimalAnimationInterval = null; // To control the decimal increment
 
-        // Formats a number to two decimal places, ensuring 00 for integers
-        function formatPercentage(level) {
-            return (level * 100).toFixed(2);
+        // Formats number to two decimal places
+        function formatPercentage(whole, decimal) {
+            return `${String(whole).padStart(2, '0')}.${String(decimal).padStart(2, '0')}`;
         }
 
-        function animatePercentage(startValue, endValue, duration = 1000) {
-            let startTime = null;
-            const diff = endValue - startValue;
+        // Starts the slow decimal animation
+        function startDecimalAnimation() {
+            if (decimalAnimationInterval) {
+                clearInterval(decimalAnimationInterval);
+            }
+            // Adjust this interval for desired speed. 1000ms (1 second) will take 100 seconds to go from .00 to .99
+            // If you want it slower, increase this value (e.g., 2000 for 2 seconds per decimal point)
+            const DECIMAL_INCREMENT_INTERVAL = 2000; // Milliseconds per decimal increment (e.g., .00 -> .01)
 
-            function step(currentTime) {
-                if (!startTime) startTime = currentTime;
-                const progress = (currentTime - startTime) / duration;
-
-                if (progress < 1) {
-                    currentDisplayedPercentage = startValue + (diff * progress);
-                    percentageDisplay.textContent = formatPercentage(currentDisplayedPercentage / 100);
-                    animationInterval = requestAnimationFrame(step);
+            decimalAnimationInterval = setInterval(() => {
+                if (simulatedDecimal < 99) {
+                    simulatedDecimal++;
                 } else {
-                    currentDisplayedPercentage = endValue;
-                    percentageDisplay.textContent = formatPercentage(endValue / 100);
+                    // If it reaches 99, we stop it and wait for the actual percentage to change
+                    clearInterval(decimalAnimationInterval);
+                    decimalAnimationInterval = null;
                 }
-            }
-            if (animationInterval) {
-                cancelAnimationFrame(animationInterval);
-            }
-            animationInterval = requestAnimationFrame(step);
+                percentageDisplay.textContent = formatPercentage(lastActualWholePercentage, simulatedDecimal);
+            }, DECIMAL_INCREMENT_INTERVAL);
         }
 
-        function updateBatteryDisplay(battery) {
-            const actualPercentage = Math.floor(battery.level * 100); // e.g., 56 for 0.56
-
-            // If actual percentage changed, or if it's the first run, update the animation target
-            if (Math.floor(currentDisplayedPercentage) !== actualPercentage) {
-                // Ensure currentDisplayedPercentage is never higher than actualPercentage
-                if (currentDisplayedPercentage / 100 > battery.level) {
-                     currentDisplayedPercentage = actualPercentage;
-                }
-                animatePercentage(currentDisplayedPercentage, actualPercentage, 2000); // Animate over 2 seconds
+        // Stops the decimal animation
+        function stopDecimalAnimation() {
+            if (decimalAnimationInterval) {
+                clearInterval(decimalAnimationInterval);
+                decimalAnimationInterval = null;
+                simulatedDecimal = 0; // Reset decimal when animation stops
             }
+        }
 
+        // Update the display with real battery data
+        function updateBatteryDisplay(battery) {
+            const currentActualWholePercentage = Math.floor(battery.level * 100);
+
+            // Update UI elements that always reflect actual battery level
             batteryFill.style.height = `${battery.level * 100}%`;
             progressBar.style.width = `${battery.level * 100}%`;
             
             // Update time
             const now = new Date();
             updateTime.textContent = now.toLocaleTimeString();
-            
-            // Update charging status
+
+            // Handle charging status and decimal animation
             if (battery.charging) {
                 chargingStatus.innerHTML = '<i class="fas fa-bolt mr-2 text-yellow-400"></i> Charging';
                 lightningIcon.style.display = 'block';
                 lightningIcon.classList.add('pulse-animation');
-                
+
+                // If the actual whole percentage has changed, or it's the first run
+                if (currentActualWholePercentage !== lastActualWholePercentage) {
+                    lastActualWholePercentage = currentActualWholePercentage;
+                    simulatedDecimal = 0; // Reset decimal counter for the new whole number
+                    percentageDisplay.textContent = formatPercentage(lastActualWholePercentage, simulatedDecimal);
+                    startDecimalAnimation(); // Start animating decimals from .00 again
+                } else {
+                    // If actual whole percentage is same, just update the display with current simulated decimal
+                    percentageDisplay.textContent = formatPercentage(lastActualWholePercentage, simulatedDecimal);
+                    if (!decimalAnimationInterval) { // Ensure animation restarts if stopped due to reaching .99
+                        startDecimalAnimation();
+                    }
+                }
+
                 // Estimate time remaining (very rough estimate)
                 if (battery.level < 1) {
                     const minsRemaining = Math.round((1 - battery.level) * 180); // ~3 hours for full charge
@@ -197,11 +212,16 @@
                 } else {
                     timeRemaining.textContent = "Fully charged";
                 }
-            } else {
+
+            } else { // Not charging
+                stopDecimalAnimation(); // Stop any ongoing decimal animation
                 chargingStatus.innerHTML = '<i class="fas fa-battery-three-quarters mr-2"></i> Not Charging';
                 lightningIcon.style.display = 'none';
                 lightningIcon.classList.remove('pulse-animation');
                 timeRemaining.textContent = "Not charging";
+                // When not charging, show the actual percentage directly
+                percentageDisplay.textContent = formatPercentage(currentActualWholePercentage, 0); 
+                lastActualWholePercentage = currentActualWholePercentage; // Update last actual for consistency
             }
             
             // Change color based on level
@@ -221,13 +241,12 @@
         if ('getBattery' in navigator) {
             navigator.getBattery().then(function(battery) {
                 // Initial update
-                currentDisplayedPercentage = Math.floor(battery.level * 100);
+                lastActualWholePercentage = Math.floor(battery.level * 100);
                 updateBatteryDisplay(battery);
                 
                 // Set up event listeners
                 battery.addEventListener('chargingchange', () => updateBatteryDisplay(battery));
                 battery.addEventListener('levelchange', () => updateBatteryDisplay(battery));
-                // No need for chargingtimechange or dischargingtimechange for this specific decimal animation
             });
         } else {
             percentageDisplay.textContent = "00.00";
