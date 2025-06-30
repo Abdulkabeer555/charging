@@ -134,34 +134,39 @@
         const lightningIcon = document.getElementById('lightningIcon');
         const chargingStatus = document.getElementById('chargingStatus');
 
-        let lastActualWholePercentage = 0; // Stores the last whole percentage reported by the API
-        let simulatedDecimal = 0; // The decimal part (0 to 99)
-        let decimalAnimationInterval = null; // To control the decimal increment
+        let lastActualWholePercentage = 0; 
+        let simulatedDecimal = 0; 
+        let decimalAnimationInterval = null; 
+        let lastLevelChangeTime = Date.now(); // To track time between 1% changes
+        let estimatedMsPerPercent = 180000; // Default estimate: 3 minutes (180,000 ms) per 1%
 
         // Formats number to two decimal places
         function formatPercentage(whole, decimal) {
             return `${String(whole).padStart(2, '0')}.${String(decimal).padStart(2, '0')}`;
         }
 
-        // Starts the slow decimal animation
+        // Starts or restarts the slow decimal animation
         function startDecimalAnimation() {
             if (decimalAnimationInterval) {
                 clearInterval(decimalAnimationInterval);
             }
-            // Adjust this interval for desired speed. 1000ms (1 second) will take 100 seconds to go from .00 to .99
-            // If you want it slower, increase this value (e.g., 2000 for 2 seconds per decimal point)
-            const DECIMAL_INCREMENT_INTERVAL = 2000; // Milliseconds per decimal increment (e.g., .00 -> .01)
+
+            // Calculate interval for each decimal step
+            // We want 100 steps (.00 to .99) to take 'estimatedMsPerPercent' milliseconds
+            // So, each step should take (estimatedMsPerPercent / 100) milliseconds
+            const decimalStepInterval = Math.max(10, Math.floor(estimatedMsPerPercent / 100)); // Minimum 10ms per step
 
             decimalAnimationInterval = setInterval(() => {
                 if (simulatedDecimal < 99) {
                     simulatedDecimal++;
                 } else {
                     // If it reaches 99, we stop it and wait for the actual percentage to change
+                    // It will restart from 00 when actual percentage updates
                     clearInterval(decimalAnimationInterval);
                     decimalAnimationInterval = null;
                 }
                 percentageDisplay.textContent = formatPercentage(lastActualWholePercentage, simulatedDecimal);
-            }, DECIMAL_INCREMENT_INTERVAL);
+            }, decimalStepInterval);
         }
 
         // Stops the decimal animation
@@ -191,23 +196,32 @@
                 lightningIcon.style.display = 'block';
                 lightningIcon.classList.add('pulse-animation');
 
-                // If the actual whole percentage has changed, or it's the first run
+                // If the actual whole percentage has changed (e.g., 56 to 57)
                 if (currentActualWholePercentage !== lastActualWholePercentage) {
+                    // Calculate time taken for last 1% charge
+                    const timeTaken = Date.now() - lastLevelChangeTime;
+                    if (timeTaken > 0 && currentActualWholePercentage > lastActualWholePercentage) { // Only update estimate if percentage increased
+                        estimatedMsPerPercent = timeTaken; // Use this to pace decimals
+                    }
+                    lastLevelChangeTime = Date.now(); // Reset timer for next 1% change
+
                     lastActualWholePercentage = currentActualWholePercentage;
                     simulatedDecimal = 0; // Reset decimal counter for the new whole number
                     percentageDisplay.textContent = formatPercentage(lastActualWholePercentage, simulatedDecimal);
-                    startDecimalAnimation(); // Start animating decimals from .00 again
+                    startDecimalAnimation(); // Start animating decimals from .00 again with new pace
                 } else {
                     // If actual whole percentage is same, just update the display with current simulated decimal
                     percentageDisplay.textContent = formatPercentage(lastActualWholePercentage, simulatedDecimal);
-                    if (!decimalAnimationInterval) { // Ensure animation restarts if stopped due to reaching .99
+                    if (!decimalAnimationInterval) { 
+                        // If decimal animation stopped because it reached .99 (and actual level hasn't updated yet)
+                        // Or if for some reason it wasn't running, start it again.
                         startDecimalAnimation();
                     }
                 }
 
                 // Estimate time remaining (very rough estimate)
                 if (battery.level < 1) {
-                    const minsRemaining = Math.round((1 - battery.level) * 180); // ~3 hours for full charge
+                    const minsRemaining = Math.round((1 - battery.level) * (estimatedMsPerPercent / 60000)); 
                     timeRemaining.textContent = `${minsRemaining} min remaining`;
                 } else {
                     timeRemaining.textContent = "Fully charged";
@@ -221,7 +235,7 @@
                 timeRemaining.textContent = "Not charging";
                 // When not charging, show the actual percentage directly
                 percentageDisplay.textContent = formatPercentage(currentActualWholePercentage, 0); 
-                lastActualWholePercentage = currentActualWholePercentage; // Update last actual for consistency
+                lastActualWholePercentage = currentActualWholePercentage; 
             }
             
             // Change color based on level
